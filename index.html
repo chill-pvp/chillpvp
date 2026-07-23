@@ -485,6 +485,42 @@
     .hero h1{ font-size:2rem; }
     .section-head h2{ font-size:1.55rem; }
   }
+
+  /* ---------- Performance / low-power mode ---------- */
+  /* Auto-enabled when the browser renders slowly (e.g. hardware acceleration
+     is off), or manually via the toggle button. Strips the expensive layers:
+     animated blur() layers, backdrop-filter, and the per-frame custom cursor. */
+  html.perf-lite *{
+    animation-duration:0.001ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:0.001ms !important;
+  }
+  html.perf-lite .reveal{ opacity:1 !important; transform:none !important; }
+  html.perf-lite .hero-in{ opacity:1 !important; }
+  html.perf-lite .starfield,
+  html.perf-lite .nebula,
+  html.perf-lite .aurora,
+  html.perf-lite .cursor-dot,
+  html.perf-lite .cursor-ring{ display:none !important; }
+  html.perf-lite nav{ backdrop-filter:none !important; background:rgba(14,16,23,0.94) !important; }
+  html.perf-lite nav.scrolled{ background:rgba(14,16,23,0.96) !important; }
+  html.perf-lite nav .links{ backdrop-filter:none !important; }
+  html.perf-lite body,
+  html.perf-lite body.has-custom-cursor,
+  html.perf-lite body.has-custom-cursor a,
+  html.perf-lite body.has-custom-cursor button,
+  html.perf-lite body.has-custom-cursor summary{ cursor:auto !important; }
+
+  .perf-toggle{
+    position:fixed; right:16px; bottom:16px; z-index:60;
+    font-family:'JetBrains Mono', monospace; font-size:0.72rem; letter-spacing:0.03em;
+    background:rgba(20,9,49,0.92); color:var(--muted); border:1px solid var(--line);
+    border-radius:999px; padding:9px 14px; cursor:pointer; display:flex; align-items:center; gap:8px;
+    transition:border-color .2s ease, color .2s ease;
+  }
+  .perf-toggle:hover{ border-color:var(--lav); color:var(--text); }
+  .perf-toggle[data-on="true"]{ border-color:var(--mint); color:var(--mint); }
+  @media (max-width:480px){ .perf-toggle{ right:10px; bottom:10px; padding:8px 12px; font-size:0.68rem; } }
 </style>
 </head>
 <body>
@@ -494,6 +530,8 @@
 
 <div class="starfield" aria-hidden="true"></div>
 <div class="nebula" aria-hidden="true"></div>
+
+<button type="button" class="perf-toggle" id="perfToggle" data-on="false" aria-pressed="false">⚡ Teljesítmény mód: KI</button>
 
 <nav id="mainNav">
   <a href="#" class="brand" style="text-decoration:none;">
@@ -822,6 +860,65 @@
 </footer>
 
 <script>
+  // ---------- Performance / low-power mode ----------
+  // Strips the animated blur() layers, backdrop-filter and the per-frame
+  // custom cursor for people whose browser renders slowly (typically because
+  // hardware/graphics acceleration is off). Runs first so later init code
+  // (e.g. the custom cursor) can see the decision immediately.
+  (function () {
+    const root = document.documentElement;
+    const KEY = 'chillpvp-perf-lite';
+
+    function applyPerfLite(on) {
+      root.classList.toggle('perf-lite', on);
+      const btn = document.getElementById('perfToggle');
+      if (btn) {
+        btn.dataset.on = on ? 'true' : 'false';
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        btn.textContent = on ? '⚡ Teljesítmény mód: BE' : '⚡ Teljesítmény mód: KI';
+      }
+    }
+
+    let saved = null;
+    try { saved = localStorage.getItem(KEY); } catch (e) { /* storage blocked */ }
+
+    if (saved === '1') {
+      applyPerfLite(true);
+    } else if (saved === '0') {
+      applyPerfLite(false);
+    } else {
+      // No explicit user choice yet: measure real frame times for a moment.
+      // A browser without GPU acceleration struggles to keep up with the
+      // blurred/animated background layers, so frame times balloon well
+      // past the ~16.7ms (60fps) budget.
+      let last = performance.now();
+      let total = 0;
+      let frames = 0;
+      function measure(now) {
+        total += now - last;
+        last = now;
+        frames++;
+        if (frames < 24) {
+          requestAnimationFrame(measure);
+        } else if (total / frames > 33) {
+          applyPerfLite(true);
+        }
+      }
+      requestAnimationFrame(measure);
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const btn = document.getElementById('perfToggle');
+      if (!btn) return;
+      applyPerfLite(root.classList.contains('perf-lite'));
+      btn.addEventListener('click', () => {
+        const on = !root.classList.contains('perf-lite');
+        applyPerfLite(on);
+        try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (e) { /* ignore */ }
+      });
+    });
+  })();
+
   // Nav scroll state
   const nav = document.getElementById('mainNav');
   window.addEventListener('scroll', () => {
@@ -901,7 +998,8 @@
   // Custom glowing cursor (desktop / fine-pointer only)
   const fineCursor = window.matchMedia('(pointer: fine)').matches;
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (fineCursor && !reduceMotion) {
+  const perfLite = document.documentElement.classList.contains('perf-lite');
+  if (fineCursor && !reduceMotion && !perfLite) {
     document.body.classList.add('has-custom-cursor');
     const dot = document.getElementById('cursorDot');
     const ring = document.getElementById('cursorRing');
